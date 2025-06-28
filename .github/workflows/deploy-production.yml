@@ -1,0 +1,234 @@
+name: Deploy to Production
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (e.g., v1.0.0)'
+        required: true
+        type: string
+
+env:
+  NODE_VERSION: '20.x'
+  PNPM_VERSION: '8'
+
+jobs:
+  # 1. 배포 승인
+  approval:
+    name: Deployment Approval
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+      - name: Request approval
+        run: echo "Waiting for deployment approval..."
+
+  # 2. 배포 전 검증
+  pre-deploy-check:
+    name: Pre-deployment Checks
+    runs-on: ubuntu-latest
+    needs: approval
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version || github.ref }}
+      
+      - name: Verify tag
+        run: |
+          if [[ ! "${{ github.ref }}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version tag"
+            exit 1
+          fi
+      
+      - name: Check staging status
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" https://staging.cushion.app/health)
+          if [ $response -ne 200 ]; then
+            echo "Staging environment is not healthy"
+            exit 1
+          fi
+
+  # 3. 데이터베이스 백업
+  backup-database:
+    name: Backup Production Database
+    runs-on: ubuntu-latest
+    needs: pre-deploy-check
+    
+    steps:
+      - name: Create database backup
+        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          pg_dump ${{ secrets.PROD_DATABASE_URL }} | gzip > backup_${TIMESTAMP}.sql.gz
+          aws s3 cp backup_${TIMESTAMP}.sql.gz s3://cushion-backups/prod/${TIMESTAMP}/
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+  # 4. Blue-Green 배포
+  deploy-blue-green:
+    name: Blue-Green Deployment
+    runs-on: ubuntu-latest
+    needs: backup-database
+    
+    strategy:
+      matrix:
+        environment: [blue, green]
+        include:
+          - environment: blue
+            current: true
+          - environment: green
+            current: false
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version || github.ref }}
+      
+      - name: Deploy to ${{ matrix.environment }}
+        if: matrix.current == false
+        run: |
+          # Deploy to inactive environment
+          echo "Deploying to ${{ matrix.environment }} environment"
+          
+          # Build and push Docker images
+          docker build -t cushion:${{ github.ref_name }} .
+          docker tag cushion:${{ github.ref_name }} ${{ secrets.ECR_REGISTRY }}/cushion:prod-${{ matrix.environment }}
+          docker push ${{ secrets.ECR_REGISTRY }}/cushion:prod-${{ matrix.environment }}
+          
+          # Update ECS service
+          aws ecs update-service \
+            --cluster cushion-prod-${{ matrix.environment }} \
+            --service cushion-app \
+            --force-new-deployment
+      
+      - name: Health check
+        if: matrix.current == false
+        run: |
+          # Wait for deployment
+          sleep 120
+          
+          # Check health
+          for i in {1..10}; do
+            response=$(curl -s -o /dev/null -w "%{http_code}" https://${{ matrix.environment }}.cushion.app/health)
+            if [ $response -eq 200 ]; then
+              echo "Health check passed"
+              break
+            fi
+            echo "Health check attempt $i failed"
+            sleep 30
+          done
+
+  # 5. 트래픽 전환
+  switch-traffic:
+    name: Switch Traffic
+    runs-on: ubuntu-latest
+    needs: deploy-blue-green
+    environment: production
+    
+    steps:
+      - name: Update load balancer
+        run: |
+          # Get current active environment
+          CURRENT_ENV=$(aws elbv2 describe-target-groups \
+            --names cushion-prod-active \
+            --query 'TargetGroups[0].Tags[?Key==`Environment`].Value' \
+            --output text)
+          
+          # Determine new environment
+          if [ "$CURRENT_ENV" = "blue" ]; then
+            NEW_ENV="green"
+          else
+            NEW_ENV="blue"
+          fi
+          
+          echo "Switching from $CURRENT_ENV to $NEW_ENV"
+          
+          # Update ALB target group
+          aws elbv2 modify-listener \
+            --listener-arn ${{ secrets.PROD_ALB_LISTENER_ARN }} \
+            --default-actions Type=forward,TargetGroupArn=${{ secrets["PROD_TG_${NEW_ENV}_ARN"] }}
+      
+      - name: Verify traffic switch
+        run: |
+          sleep 30
+          response=$(curl -s https://api.cushion.app/version)
+          if [[ "$response" != *"${{ github.ref_name }}"* ]]; then
+            echo "Version mismatch after traffic switch"
+            exit 1
+          fi
+
+  # 6. 후속 작업
+  post-deploy:
+    name: Post Deployment Tasks
+    runs-on: ubuntu-latest
+    needs: switch-traffic
+    
+    steps:
+      - name: Invalidate CDN cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DIST_ID }} \
+            --paths "/*"
+      
+      - name: Update monitoring
+        run: |
+          # Update Datadog deployment marker
+          curl -X POST "https://api.datadoghq.com/api/v1/events" \
+            -H "DD-API-KEY: ${{ secrets.DATADOG_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "title": "Production deployment",
+              "text": "Deployed version ${{ github.ref_name }}",
+              "tags": ["env:prod", "version:${{ github.ref_name }}"]
+            }'
+      
+      - name: Create release notes
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          prerelease: false
+
+  # 7. 롤백 준비
+  prepare-rollback:
+    name: Prepare Rollback Plan
+    runs-on: ubuntu-latest
+    needs: post-deploy
+    
+    steps:
+      - name: Document rollback procedure
+        run: |
+          cat > rollback-plan.md << EOF
+          # Rollback Plan for ${{ github.ref_name }}
+          
+          ## Quick Rollback (< 5 minutes)
+          1. Switch ALB target group back to previous environment
+          2. Invalidate CDN cache
+          
+          ## Full Rollback (< 30 minutes)
+          1. Restore database from backup
+          2. Deploy previous version to inactive environment
+          3. Switch traffic
+          4. Monitor for 30 minutes
+          
+          ## Commands
+          \`\`\`bash
+          # Quick rollback
+          ./scripts/rollback.sh quick ${{ github.ref_name }}
+          
+          # Full rollback
+          ./scripts/rollback.sh full ${{ github.ref_name }}
+          \`\`\`
+          EOF
+      
+      - name: Upload rollback plan
+        uses: actions/upload-artifact@v3
+        with:
+          name: rollback-plan-${{ github.ref_name }}
+          path: rollback-plan.md

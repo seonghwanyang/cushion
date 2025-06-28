@@ -1,0 +1,32 @@
+# 빌드 산출물
+dist
+build
+.next
+out
+
+# 의존성
+node_modules
+
+# 캐시
+.cache
+.turbo
+
+# 환경 파일
+.env*
+!.env.example
+
+# 자동 생성 파일
+*.min.js
+*.min.css
+coverage
+*.lock
+package-lock.json
+pnpm-lock.yaml
+
+# Prisma
+*.db
+migrations
+
+# 기타
+.DS_Store
+*.log

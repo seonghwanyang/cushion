@@ -1,0 +1,335 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ========== Enums ==========
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum MoodType {
+  HAPPY
+  SAD
+  ANGRY
+  ANXIOUS
+  NEUTRAL
+  EXCITED
+  GRATEFUL
+  STRESSED
+  PEACEFUL
+  HOPEFUL
+}
+
+enum InsightType {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum SubscriptionPlan {
+  FREE
+  PREMIUM
+  PRO
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  TRIAL
+}
+
+// ========== Models ==========
+
+model User {
+  id                String             @id @default(cuid())
+  email             String             @unique
+  password          String
+  name              String?
+  profileImage      String?
+  role              UserRole           @default(USER)
+  status            UserStatus         @default(ACTIVE)
+  
+  // Relations
+  profile           Profile?
+  diaries           Diary[]
+  insights          Insight[]
+  portfolio         Portfolio[]
+  subscription      Subscription?
+  refreshTokens     RefreshToken[]
+  securityLogs      SecurityLog[]
+  
+  // Timestamps
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  lastLoginAt       DateTime?
+  
+  @@index([email])
+  @@index([status])
+}
+
+model Profile {
+  id                String             @id @default(cuid())
+  userId            String             @unique
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Profile Info
+  bio               String?
+  currentSituation  String?            // 이직준비, 창업, 시험준비 등
+  goals             String[]           // 사용자 목표
+  
+  // Settings
+  reminderEnabled   Boolean            @default(true)
+  reminderTime      String             @default("21:00")
+  weeklyReportDay   Int                @default(0) // 0 = Sunday
+  timezone          String             @default("Asia/Seoul")
+  
+  // Stats
+  totalDiaries      Int                @default(0)
+  currentStreak     Int                @default(0)
+  longestStreak     Int                @default(0)
+  
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+}
+
+model Diary {
+  id                String             @id @default(cuid())
+  userId            String
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Content
+  content           String             @db.Text
+  mood              MoodType?
+  tags              String[]
+  
+  // AI Analysis
+  isAnalyzed        Boolean            @default(false)
+  analyzedAt        DateTime?
+  
+  // Relations
+  insights          Insight[]
+  attachments       Attachment[]
+  
+  // Timestamps
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  
+  @@index([userId, createdAt])
+  @@index([userId, isAnalyzed])
+}
+
+model Insight {
+  id                String             @id @default(cuid())
+  diaryId           String
+  diary             Diary              @relation(fields: [diaryId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Type
+  type              InsightType
+  
+  // AI Analysis Results
+  content           Json               // 전체 분석 결과
+  strengths         String[]           // 발견된 강점
+  skills            Json               // { technical: [], soft: [] }
+  emotions          String[]           // 감지된 감정
+  growthAreas       String[]           // 성장 영역
+  evidence          String[]           // 구체적 증거
+  
+  // Feedback
+  feedback          String             @db.Text
+  confidence        Float              @default(0.0) // AI 분석 신뢰도
+  
+  // AI Metadata
+  model             String?            // 사용된 AI 모델
+  tokensUsed        Int?               // 토큰 사용량
+  processingTime    Int?               // 처리 시간 (ms)
+  
+  createdAt         DateTime           @default(now())
+  
+  @@index([diaryId])
+  @@index([userId, type])
+  @@index([userId, createdAt])
+}
+
+model Portfolio {
+  id                String             @id @default(cuid())
+  userId            String
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Portfolio Info
+  title             String
+  period            Json               // { start: Date, end: Date }
+  format            String             // linkedin, resume, general
+  
+  // Content
+  summary           String             @db.Text
+  keyStrengths      Json               // 주요 강점과 증거
+  achievements      Json               // 성과와 경험
+  growthStory       String             @db.Text
+  
+  // LinkedIn Optimization
+  linkedinHeadline  String?
+  linkedinAbout     String?            @db.Text
+  linkedinSkills    String[]
+  
+  // Metadata
+  isPublic          Boolean            @default(false)
+  views             Int                @default(0)
+  
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  
+  @@index([userId, createdAt])
+}
+
+model Attachment {
+  id                String             @id @default(cuid())
+  diaryId           String
+  diary             Diary              @relation(fields: [diaryId], references: [id], onDelete: Cascade)
+  
+  // File Info
+  filename          String
+  mimeType          String
+  size              Int                // bytes
+  url               String             // S3 URL
+  
+  // Metadata
+  uploadedAt        DateTime           @default(now())
+  
+  @@index([diaryId])
+}
+
+model Subscription {
+  id                String             @id @default(cuid())
+  userId            String             @unique
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Plan Info
+  plan              SubscriptionPlan   @default(FREE)
+  status            SubscriptionStatus @default(ACTIVE)
+  
+  // Billing
+  stripeCustomerId  String?            @unique
+  stripeSubscriptionId String?         @unique
+  
+  // Dates
+  trialStartDate    DateTime?
+  trialEndDate      DateTime?
+  currentPeriodStart DateTime?
+  currentPeriodEnd  DateTime?
+  cancelledAt       DateTime?
+  
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  
+  @@index([status])
+}
+
+model RefreshToken {
+  id                String             @id @default(cuid())
+  jti               String             @unique // JWT ID
+  userId            String
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Token Info
+  token             String             @db.Text // Hashed token
+  deviceId          String?
+  deviceName        String?
+  
+  // Status
+  revoked           Boolean            @default(false)
+  expiresAt         DateTime
+  
+  createdAt         DateTime           @default(now())
+  
+  @@index([userId])
+  @@index([jti])
+}
+
+model SecurityLog {
+  id                String             @id @default(cuid())
+  userId            String?
+  user              User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  // Event Info
+  eventType         String             // LOGIN_SUCCESS, LOGIN_FAILURE, etc.
+  ipAddress         String
+  userAgent         String
+  
+  // Details
+  details           Json?              // Additional event details
+  
+  createdAt         DateTime           @default(now())
+  
+  @@index([userId])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+// ========== Future Models (Phase 2+) ==========
+
+model WeeklyReport {
+  id                String             @id @default(cuid())
+  userId            String
+  
+  // Report Period
+  startDate         DateTime
+  endDate           DateTime
+  
+  // Summary
+  totalDiaries      Int
+  dominantMood      String?
+  topStrengths      String[]
+  consistentSkills  String[]
+  growthProgress    Json
+  
+  // AI Generated
+  weeklyFeedback    String             @db.Text
+  recommendations   String[]
+  
+  createdAt         DateTime           @default(now())
+  
+  @@index([userId, startDate])
+}
+
+model AuditLog {
+  id                String             @id @default(cuid())
+  userId            String?
+  
+  // Action Info
+  action            String
+  resource          String
+  resourceId        String?
+  
+  // Changes
+  oldValue          Json?
+  newValue          Json?
+  
+  // Context
+  ipAddress         String?
+  userAgent         String?
+  
+  createdAt         DateTime           @default(now())
+  
+  @@index([userId])
+  @@index([action])
+  @@index([resourceId])
+}
