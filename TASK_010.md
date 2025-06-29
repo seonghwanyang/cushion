@@ -1,4 +1,4 @@
-# Task 010: 회원가입 기능 수정 및 구글 OAuth 로그인 구현
+# Task 010: 회원가입 기능 수정, Google OAuth 및 Supabase 연동
 
 ## Claude Code 작업 지시사항
 
@@ -9,18 +9,49 @@
 4. **환경 변수** - 민감한 정보는 절대 코드에 하드코딩하지 말 것
 5. **타입 안정성** - TypeScript 타입을 엄격하게 정의
 
-### 📋 작업 전 확인사항
+### 🔑 환경 변수 설정 위치 가이드
+
+#### Backend 환경 변수
 ```bash
-# 1. 현재 서버 상태 확인
-curl http://localhost:3001/api/health
-curl http://localhost:3000
+# backend/.env.local (로컬 개발용 - gitignore에 포함)
+# 실제 비밀 키들을 여기에 저장
 
-# 2. 데이터베이스 연결 확인
-# backend 로그에서 "Database connected" 메시지 확인
+DATABASE_URL=your_actual_database_url
+JWT_SECRET=your_actual_jwt_secret
 
-# 3. 현재 브랜치 확인 (main 브랜치에서 작업)
-cd cushion_code
-git status
+# Supabase
+SUPABASE_URL=your_project_url
+SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+# Google OAuth
+GOOGLE_CLIENT_ID=your_actual_google_client_id
+GOOGLE_CLIENT_SECRET=your_actual_google_client_secret
+GOOGLE_REDIRECT_URI=http://localhost:3001/api/auth/google/callback
+```
+
+#### Frontend 환경 변수
+```bash
+# frontend/.env.local (로컬 개발용 - gitignore에 포함)
+# 공개되어도 괜찮은 키들 (NEXT_PUBLIC_ 접두사)
+
+NEXT_PUBLIC_API_URL=http://localhost:3001/api
+NEXT_PUBLIC_SUPABASE_URL=your_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your_actual_google_client_id
+```
+
+### 📋 환경 변수 파일 구조 설명
+```
+cushion_code/
+├── backend/
+│   ├── .env.example      # 예시 파일 (깃에 포함)
+│   ├── .env.development  # 개발 환경 (깃에 포함 - 더미값)
+│   └── .env.local       # 실제 키 (gitignore - 생성 필요)
+└── frontend/
+    ├── .env.example     # 예시 파일 (깃에 포함)
+    ├── .env.development # 개발 환경 (깃에 포함 - 더미값)
+    └── .env.local      # 실제 키 (gitignore - 생성 필요)
 ```
 
 ## 1단계: 회원가입 디버깅 및 수정
@@ -54,41 +85,7 @@ export const register = async (req: Request, res: Response) => {
 };
 ```
 
-### 1.2 Frontend 디버깅
-```typescript
-// frontend/src/app/auth/register/page.tsx 수정 시
-// 1. 네트워크 요청 로깅
-// 2. 에러 상태 UI에 표시
-// 3. 로딩 상태 관리
-
-const handleSubmit = async (e: FormEvent) => {
-  console.log('회원가입 폼 제출');
-  
-  try {
-    setLoading(true);
-    setError(null);
-    
-    const response = await fetch(...);
-    console.log('응답 상태:', response.status);
-    
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('서버 에러:', errorData);
-      setError(errorData.message || '회원가입에 실패했습니다');
-      return;
-    }
-    
-    // 성공 처리
-  } catch (error) {
-    console.error('네트워크 에러:', error);
-    setError('서버와 연결할 수 없습니다');
-  } finally {
-    setLoading(false);
-  }
-};
-```
-
-### 1.3 CORS 설정 확인
+### 1.2 CORS 설정 확인
 ```typescript
 // backend/src/app.ts에서 CORS 설정 확인
 app.use(cors({
@@ -99,143 +96,173 @@ app.use(cors({
 }));
 ```
 
-## 2단계: Google OAuth 구현
+## 2단계: Supabase 통합
 
-### 2.1 패키지 설치
+### 2.1 Supabase 설정
 ```bash
-# Backend
+# Backend 패키지 설치
 cd backend
-pnpm add passport passport-google-oauth20 @types/passport @types/passport-google-oauth20
+pnpm add @supabase/supabase-js
 
-# Frontend
+# Frontend 패키지 설치
 cd ../frontend
-pnpm add @react-oauth/google
+pnpm add @supabase/supabase-js @supabase/auth-helpers-nextjs
 ```
 
-### 2.2 Google Cloud Console 설정 안내
-```
-⚠️ Claude Code 주의: 실제 Google Client ID/Secret은 생성하지 말고, 
-다음 더미 값을 .env.development에 추가하세요:
-
-GOOGLE_CLIENT_ID=dummy-google-client-id
-GOOGLE_CLIENT_SECRET=dummy-google-client-secret
-GOOGLE_REDIRECT_URI=http://localhost:3001/api/auth/google/callback
-NEXT_PUBLIC_GOOGLE_CLIENT_ID=dummy-google-client-id
-
-실제 값은 사용자가 Google Cloud Console에서 생성 후 교체할 예정
-```
-
-### 2.3 Backend OAuth 구현
+### 2.2 Supabase 클라이언트 설정
 ```typescript
-// backend/src/config/passport.ts - 새 파일 생성
-import passport from 'passport';
-import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+// backend/src/config/supabase.ts
+import { createClient } from '@supabase/supabase-js';
 
-// ⚠️ 주의: User 모델 import 경로 확인
-// ⚠️ 주의: 환경 변수 검증 추가
+// ⚠️ 주의: 환경 변수는 .env.local에서 로드
+const supabaseUrl = process.env.SUPABASE_URL!;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-passport.use(
-  new GoogleStrategy(
-    {
-      clientID: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      callbackURL: process.env.GOOGLE_REDIRECT_URI!,
-    },
-    async (accessToken, refreshToken, profile, done) => {
-      // 구현 시 주의사항:
-      // 1. 기존 사용자 확인 (googleId 또는 email로)
-      // 2. 없으면 새 사용자 생성
-      // 3. JWT 토큰 생성
-      // 4. 에러 처리
-    }
-  )
-);
+export const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
+
+// frontend/src/lib/supabase.ts
+import { createClient } from '@supabase/supabase-js';
+
+// ⚠️ 주의: NEXT_PUBLIC_ 접두사 필수
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 ```
 
-### 2.4 Frontend Google 로그인 컴포넌트
+### 2.3 Supabase Auth 통합
+```typescript
+// Supabase를 사용한 인증 흐름
+// 1. 회원가입/로그인은 Supabase Auth 사용
+// 2. 사용자 데이터는 자체 DB에도 동기화
+// 3. JWT는 Supabase 토큰 사용 가능
+```
+
+## 3단계: Google OAuth 구현 (Supabase 통합)
+
+### 3.1 Supabase OAuth 설정
 ```typescript
 // frontend/src/components/auth/GoogleSignInButton.tsx
-// ⚠️ 주의사항:
-// 1. @react-oauth/google의 GoogleOAuthProvider로 앱 감싸기 (providers.tsx)
-// 2. 에러 처리 UI 포함
-// 3. 로딩 상태 표시
-// 4. 접근성 고려 (aria-label 등)
+import { supabase } from '@/lib/supabase';
+
+const handleGoogleSignIn = async () => {
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: 'http://localhost:3000/auth/callback'
+    }
+  });
+  
+  if (error) {
+    console.error('Google 로그인 에러:', error);
+  }
+};
 ```
 
-## 3단계: 테스트 및 검증
+### 3.2 OAuth 콜백 처리
+```typescript
+// frontend/src/app/auth/callback/page.tsx
+// Supabase OAuth 콜백 처리 페이지
+// 로그인 성공 후 사용자 정보를 백엔드와 동기화
+```
 
-### 3.1 회원가입 테스트 시나리오
+## 4단계: 환경 변수 생성 가이드
+
+### 4.1 .env.local 파일 생성
 ```bash
-# 1. 정상 회원가입
-curl -X POST http://localhost:3001/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@test.com","password":"Test123!","name":"Test User"}'
+# Backend .env.local 생성
+cd backend
+cp .env.example .env.local
+# 실제 키 값으로 수정
 
-# 2. 중복 이메일
-# 같은 요청 다시 실행 - 에러 메시지 확인
-
-# 3. 잘못된 입력
-# 이메일 형식 오류, 짧은 비밀번호 등
+# Frontend .env.local 생성  
+cd ../frontend
+cp .env.example .env.local
+# 실제 키 값으로 수정
 ```
 
-### 3.2 Google OAuth 테스트
-```
-1. Frontend에서 Google 로그인 버튼 클릭
-2. Google 로그인 팝업 확인
-3. 콜백 처리 확인
-4. 토큰 저장 및 리다이렉션 확인
-```
+### 4.2 필요한 키 획득 방법 문서화
+```markdown
+## Supabase 키 획득 방법
+1. https://supabase.com 에서 프로젝트 생성
+2. Settings > API 에서 다음 값 복사:
+   - Project URL → SUPABASE_URL
+   - anon public → SUPABASE_ANON_KEY  
+   - service_role secret → SUPABASE_SERVICE_ROLE_KEY
 
-## 4단계: 마무리 작업
-
-### 4.1 문서 업데이트
-- [ ] README.md에 Google OAuth 설정 방법 추가
-- [ ] .env.example 파일 업데이트
-
-### 4.2 커밋 메시지 규칙
-```bash
-# 기능별로 커밋 분리
-git commit -m "fix: 회원가입 API 에러 처리 개선"
-git commit -m "feat: Google OAuth 백엔드 구현"
-git commit -m "feat: Google OAuth 프론트엔드 통합"
+## Google OAuth 키 획득 방법
+1. https://console.cloud.google.com 접속
+2. 새 프로젝트 생성 또는 기존 프로젝트 선택
+3. APIs & Services > Credentials
+4. Create Credentials > OAuth 2.0 Client ID
+5. Authorized redirect URIs에 추가:
+   - http://localhost:3000/auth/callback (Supabase)
+   - http://localhost:3001/api/auth/google/callback (자체 구현 시)
 ```
 
-## ⚡ 긴급 대응 사항
+## 5단계: 테스트 및 검증
 
-### 회원가입이 안 되는 문제를 최우선으로 해결
-1. **즉시 확인할 것**:
-   - POST /api/auth/register 엔드포인트 응답
-   - 데이터베이스 연결 상태
-   - bcrypt 해싱 동작
-   - JWT 토큰 생성
+### 5.1 Supabase 연동 테스트
+```typescript
+// 테스트 스크립트 작성
+// backend/src/scripts/test-supabase.ts
+import { supabase } from '../config/supabase';
 
-2. **콘솔/네트워크 탭 확인**:
-   - Frontend: 개발자 도구 > Network 탭에서 register 요청 확인
-   - Backend: 터미널에서 모든 로그 확인
+async function testConnection() {
+  const { data, error } = await supabase
+    .from('test')
+    .select('*')
+    .limit(1);
+    
+  if (error) {
+    console.error('Supabase 연결 실패:', error);
+  } else {
+    console.log('Supabase 연결 성공');
+  }
+}
+```
 
-3. **일반적인 문제 원인**:
-   - CORS 설정 누락
-   - 환경 변수 미설정
-   - 데이터베이스 연결 실패
-   - 포트 충돌 (3000, 3001)
+## 6단계: 구현 우선순위
+
+1. **긴급** - 회원가입 버그 수정
+2. **높음** - .env.local 파일 설정 가이드 작성
+3. **높음** - Supabase 클라이언트 설정
+4. **중간** - Supabase Auth 통합
+5. **중간** - Google OAuth (Supabase 통합)
+6. **낮음** - 추가 소셜 로그인 (GitHub, Kakao 등)
 
 ## 📌 최종 체크리스트
 
 - [ ] 회원가입 기능 정상 작동
-- [ ] 로그인 기능 정상 작동
+- [ ] .env.local 파일 생성 및 설정
+- [ ] Supabase 연결 테스트 성공
 - [ ] Google OAuth 로그인 구현
-- [ ] 에러 처리 및 사용자 피드백
-- [ ] 환경 변수 정리
-- [ ] 타입 정의 완성
-- [ ] 테스트 완료
-- [ ] 문서 업데이트
+- [ ] 사용자 데이터 동기화
+- [ ] 환경 변수 설정 문서화
+- [ ] .gitignore 확인 (.env.local 제외)
 
-## 🚨 절대 하지 말아야 할 것
-1. 실제 Google API 키 하드코딩
-2. 비밀번호 평문 저장
-3. SQL Injection 가능한 쿼리
-4. 민감한 정보 로깅
-5. CORS 모든 origin 허용 (*)
+## 🚨 중요 보안 사항
+
+1. **.env.local 파일은 절대 Git에 커밋하지 않음**
+2. **Service Role Key는 백엔드에서만 사용**
+3. **Anon Key는 프론트엔드에서 사용 가능**
+4. **실제 키는 사용자가 직접 설정하도록 안내**
+
+## 📝 사용자에게 전달할 내용
+
+작업 완료 후 사용자에게 다음 내용 전달:
+```
+1. backend/.env.local 파일을 생성하고 실제 키를 입력하세요
+2. frontend/.env.local 파일을 생성하고 실제 키를 입력하세요
+3. Supabase 프로젝트를 생성하고 키를 복사하세요
+4. Google Cloud Console에서 OAuth 클라이언트를 생성하세요
+5. 각 .env.local 파일에 키를 입력한 후 서버를 재시작하세요
+```
 
 ---
 **작업 시작 전 반드시 현재 코드를 백업하고, 단계별로 테스트하며 진행하세요!**

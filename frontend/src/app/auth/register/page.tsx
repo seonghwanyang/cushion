@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton'
 
 const registerSchema = z.object({
   email: z.string().email('유효한 이메일을 입력해주세요'),
@@ -129,11 +130,22 @@ export default function RegisterPage() {
             {registerMutation.isPending ? '가입 중...' : '회원가입'}
           </Button>
         </form>
+        
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-white px-2 text-gray-500">또는</span>
+          </div>
+        </div>
+        
+        <GoogleSignInButton className="w-full" />
       </CardContent>
       <CardFooter>
         <p className="text-sm text-gray-600">
           이미 계정이 있으신가요?{' '}
-          <Link href="/login" className="font-semibold text-primary hover:underline">
+          <Link href="/auth/login" className="font-semibold text-primary hover:underline">
             로그인
           </Link>
         </p>
