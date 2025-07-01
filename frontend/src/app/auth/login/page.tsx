@@ -6,9 +6,7 @@ import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
-import { useMutation } from '@tanstack/react-query'
-import { authApi } from '@/lib/api/auth.api'
-import { useAuthStore } from '@/lib/stores/auth.store'
+import { authApi } from '@/lib/api/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -24,8 +22,8 @@ type LoginFormData = z.infer<typeof loginSchema>
 
 export default function LoginPage() {
   const router = useRouter()
-  const login = useAuthStore((state) => state.login)
   const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
 
   const {
     register,
@@ -35,20 +33,27 @@ export default function LoginPage() {
     resolver: zodResolver(loginSchema),
   })
 
-  const loginMutation = useMutation({
-    mutationFn: authApi.login,
-    onSuccess: (data) => {
-      login(data.user, data.tokens.accessToken, data.tokens.refreshToken)
-      router.push('/dashboard/diaries')
-    },
-    onError: (error: any) => {
-      setError(error.response?.data?.message || '로그인에 실패했습니다')
-    },
-  })
-
-  const onSubmit = (data: LoginFormData) => {
+  const onSubmit = async (data: LoginFormData) => {
     setError(null)
-    loginMutation.mutate(data)
+    setIsLoading(true)
+
+    try {
+      const result = await authApi.login(data)
+      
+      if (result.error) {
+        setError(result.error.message || '로그인에 실패했습니다')
+        return
+      }
+
+      // 로그인 성공 시 대시보드로 이동
+      router.push('/dashboard')
+      router.refresh() // 서버 컴포넌트 새로고침
+    } catch (err: any) {
+      console.error('Login error:', err)
+      setError(err.message || '로그인 중 오류가 발생했습니다')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -68,7 +73,7 @@ export default function LoginPage() {
               type="email"
               placeholder="name@example.com"
               {...register('email')}
-              disabled={loginMutation.isPending}
+              disabled={isLoading}
             />
             {errors.email && (
               <p className="text-sm text-red-500">{errors.email.message}</p>
@@ -80,7 +85,7 @@ export default function LoginPage() {
               id="password"
               type="password"
               {...register('password')}
-              disabled={loginMutation.isPending}
+              disabled={isLoading}
             />
             {errors.password && (
               <p className="text-sm text-red-500">{errors.password.message}</p>
@@ -94,9 +99,9 @@ export default function LoginPage() {
           <Button
             type="submit"
             className="w-full"
-            disabled={loginMutation.isPending}
+            disabled={isLoading}
           >
-            {loginMutation.isPending ? '로그인 중...' : '로그인'}
+            {isLoading ? '로그인 중...' : '로그인'}
           </Button>
         </form>
         
@@ -110,6 +115,15 @@ export default function LoginPage() {
         </div>
         
         <GoogleSignInButton className="w-full" />
+        
+        <div className="mt-4 text-center">
+          <Link 
+            href="/auth/forgot-password" 
+            className="text-sm text-gray-600 hover:text-gray-900"
+          >
+            비밀번호를 잊으셨나요?
+          </Link>
+        </div>
       </CardContent>
       <CardFooter>
         <p className="text-sm text-gray-600">

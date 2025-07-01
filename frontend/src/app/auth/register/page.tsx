@@ -6,9 +6,7 @@ import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
-import { useMutation } from '@tanstack/react-query'
-import { authApi } from '@/lib/api/auth.api'
-import { useAuthStore } from '@/lib/stores/auth.store'
+import { authApi } from '@/lib/api/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -29,8 +27,9 @@ type RegisterFormData = z.infer<typeof registerSchema>
 
 export default function RegisterPage() {
   const router = useRouter()
-  const login = useAuthStore((state) => state.login)
   const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [success, setSuccess] = useState(false)
 
   const {
     register,
@@ -40,24 +39,58 @@ export default function RegisterPage() {
     resolver: zodResolver(registerSchema),
   })
 
-  const registerMutation = useMutation({
-    mutationFn: authApi.register,
-    onSuccess: (data) => {
-      console.log('[RegisterPage] Success data:', data);
-      login(data.user, data.tokens.accessToken, data.tokens.refreshToken)
-      router.push('/dashboard/diaries')
-    },
-    onError: (error: any) => {
-      console.error('[RegisterPage] Error:', error);
-      console.error('[RegisterPage] Error response:', error.response);
-      setError(error.response?.data?.error?.message || error.response?.data?.message || '회원가입에 실패했습니다')
-    },
-  })
-
-  const onSubmit = (data: RegisterFormData) => {
+  const onSubmit = async (data: RegisterFormData) => {
     setError(null)
-    const { passwordConfirm, ...registerData } = data
-    registerMutation.mutate(registerData)
+    setIsLoading(true)
+
+    try {
+      const { passwordConfirm, ...registerData } = data
+      const result = await authApi.register(registerData)
+      
+      if (result.error) {
+        setError(result.error.message || '회원가입에 실패했습니다')
+        return
+      }
+
+      // 회원가입 성공
+      setSuccess(true)
+      
+      // Supabase는 이메일 확인이 필요할 수 있음
+      if (result.session) {
+        // 세션이 있으면 자동 로그인되었으므로 대시보드로 이동
+        router.push('/dashboard')
+        router.refresh()
+      } else {
+        // 이메일 확인이 필요한 경우
+        setError('가입 확인 이메일을 발송했습니다. 이메일을 확인해주세요.')
+      }
+    } catch (err: any) {
+      console.error('Register error:', err)
+      setError(err.message || '회원가입 중 오류가 발생했습니다')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  if (success && !error) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-2xl font-bold">회원가입 완료</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-gray-600">
+            회원가입이 완료되었습니다. 이메일을 확인하여 계정을 활성화해주세요.
+          </p>
+          <Button 
+            className="w-full mt-4" 
+            onClick={() => router.push('/auth/login')}
+          >
+            로그인 페이지로 이동
+          </Button>
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
@@ -77,7 +110,7 @@ export default function RegisterPage() {
               type="text"
               placeholder="홍길동"
               {...register('name')}
-              disabled={registerMutation.isPending}
+              disabled={isLoading}
             />
           </div>
           <div className="space-y-2">
@@ -87,7 +120,7 @@ export default function RegisterPage() {
               type="email"
               placeholder="name@example.com"
               {...register('email')}
-              disabled={registerMutation.isPending}
+              disabled={isLoading}
             />
             {errors.email && (
               <p className="text-sm text-red-500">{errors.email.message}</p>
@@ -99,7 +132,7 @@ export default function RegisterPage() {
               id="password"
               type="password"
               {...register('password')}
-              disabled={registerMutation.isPending}
+              disabled={isLoading}
             />
             {errors.password && (
               <p className="text-sm text-red-500">{errors.password.message}</p>
@@ -111,23 +144,25 @@ export default function RegisterPage() {
               id="passwordConfirm"
               type="password"
               {...register('passwordConfirm')}
-              disabled={registerMutation.isPending}
+              disabled={isLoading}
             />
             {errors.passwordConfirm && (
               <p className="text-sm text-red-500">{errors.passwordConfirm.message}</p>
             )}
           </div>
           {error && (
-            <div className="rounded-md bg-red-50 p-3">
-              <p className="text-sm text-red-800">{error}</p>
+            <div className={`rounded-md p-3 ${error.includes('이메일을 확인') ? 'bg-blue-50' : 'bg-red-50'}`}>
+              <p className={`text-sm ${error.includes('이메일을 확인') ? 'text-blue-800' : 'text-red-800'}`}>
+                {error}
+              </p>
             </div>
           )}
           <Button
             type="submit"
             className="w-full"
-            disabled={registerMutation.isPending}
+            disabled={isLoading}
           >
-            {registerMutation.isPending ? '가입 중...' : '회원가입'}
+            {isLoading ? '가입 중...' : '회원가입'}
           </Button>
         </form>
         

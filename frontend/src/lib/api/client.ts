@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import { useAuthStore } from '@/lib/stores/auth.store';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 
@@ -13,17 +13,24 @@ export const apiClient = axios.create({
   withCredentials: true,
 });
 
-// Request interceptor to add auth token
+// Request interceptor to add Supabase auth token
 apiClient.interceptors.request.use(
-  (config) => {
+  async (config) => {
     console.log('[API Client] Request:', config.method?.toUpperCase(), config.url);
     console.log('[API Client] Request data:', config.data);
     
-    const token = useAuthStore.getState().accessToken;
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-      console.log('[API Client] Added auth token');
+    // Get current Supabase session
+    if (isSupabaseConfigured()) {
+      const { data: { session }, error } = await supabase!.auth.getSession();
+    
+      if (session?.access_token) {
+        config.headers.Authorization = `Bearer ${session.access_token}`;
+        console.log('[API Client] Added Supabase auth token');
+      } else if (error) {
+        console.error('[API Client] Error getting session:', error);
+      }
     }
+    
     return config;
   },
   (error) => {
@@ -38,6 +45,9 @@ apiClient.interceptors.response.use(
     console.log('[API Client] Response:', response.config.method?.toUpperCase(), response.config.url);
     console.log('[API Client] Response status:', response.status);
     console.log('[API Client] Response data:', response.data);
+    if (response.data?.meta) {
+      console.log('[API Client] Response meta:', response.data.meta);
+    }
     return response;
   },
   async (error: AxiosError) => {
@@ -46,29 +56,38 @@ apiClient.interceptors.response.use(
     
     const originalRequest = error.config as any;
     
+    // Handle 401 errors
     if (error.response?.status === 401 && !originalRequest._retry) {
-      console.log('[API Client] 401 error, attempting token refresh...');
+      console.log('[API Client] 401 error, attempting to refresh session...');
       originalRequest._retry = true;
       
       try {
-        const refreshToken = useAuthStore.getState().refreshToken;
-        if (!refreshToken) {
-          throw new Error('No refresh token');
+        // Try to refresh the Supabase session
+        if (!isSupabaseConfigured()) {
+          throw new Error('Supabase is not configured');
         }
         
-        const response = await axios.post(`${API_URL}/auth/refresh`, {
-          refreshToken,
-        });
+        const { data, error: refreshError } = await supabase!.auth.refreshSession();
         
-        const { accessToken, refreshToken: newRefreshToken } = response.data;
-        useAuthStore.getState().setTokens(accessToken, newRefreshToken);
+        if (refreshError || !data.session) {
+          throw new Error('Session refresh failed');
+        }
         
-        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+        console.log('[API Client] Session refreshed successfully');
+        
+        // Retry the original request with new token
+        originalRequest.headers.Authorization = `Bearer ${data.session.access_token}`;
         return apiClient(originalRequest);
+        
       } catch (refreshError) {
-        console.error('[API Client] Token refresh failed:', refreshError);
-        useAuthStore.getState().logout();
-        window.location.href = '/login';
+        console.error('[API Client] Session refresh failed:', refreshError);
+        
+        // Sign out and redirect to login
+        if (isSupabaseConfigured()) {
+          await supabase!.auth.signOut();
+        }
+        window.location.href = '/auth/login';
+        
         return Promise.reject(refreshError);
       }
     }

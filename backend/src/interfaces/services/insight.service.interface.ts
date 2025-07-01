@@ -1,4 +1,35 @@
-import { DiaryAnalysis, WeeklyInsight, PortfolioSummary } from './ai.service.interface';
+import { DiaryAnalysis } from './ai.service.interface';
+
+export interface WeeklyInsight {
+  weekStartDate: Date;
+  weekEndDate: Date;
+  totalDiaries: number;
+  dominantEmotions: string[];
+  topStrengths: string[];
+  growthAreas: string[];
+  weeklyFeedback: string;
+  recommendations: string[];
+}
+
+export interface PortfolioSummary {
+  userId: string;
+  period: {
+    start: Date;
+    end: Date;
+  };
+  keyStrengths: Array<{
+    strength: string;
+    evidence: string[];
+    frequency: number;
+  }>;
+  skillsProgression: {
+    technical: string[];
+    soft: string[];
+  };
+  growthJourney: string;
+  achievements: string[];
+  recommendations: string[];
+}
 
 export interface Insight {
   id: string;

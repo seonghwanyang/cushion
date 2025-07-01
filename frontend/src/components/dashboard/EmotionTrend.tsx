@@ -5,12 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
 
 interface EmotionTrendProps {
-  data?: {
-    date: string;
-    positive: number;
-    neutral: number;
-    negative: number;
-  }[];
+  data?: Array<{ date: string; mood: string; value: number }>;
   loading?: boolean;
 }
 
@@ -19,21 +14,47 @@ export function EmotionTrend({ data, loading }: EmotionTrendProps) {
     return <Skeleton className="h-[300px] w-full" />;
   }
 
-  // Mock 데이터
-  const mockData = data || Array.from({ length: 7 }, (_, i) => {
-    const date = new Date();
-    date.setDate(date.getDate() - (6 - i));
-    return {
-      date: format(date, 'MM/dd'),
-      positive: Math.floor(Math.random() * 40) + 40,
-      neutral: Math.floor(Math.random() * 30) + 20,
-      negative: Math.floor(Math.random() * 20) + 10,
-    };
-  });
+  // API 데이터를 차트 형식으로 변환
+  const processData = () => {
+    if (!data || data.length === 0) return [];
+    
+    // 날짜별로 그룹화
+    const groupedData = data.reduce((acc, item) => {
+      const date = format(new Date(item.date), 'MM/dd');
+      if (!acc[date]) {
+        acc[date] = { date, positive: 0, neutral: 0, negative: 0 };
+      }
+      
+      // 감정을 긍정/중립/부정으로 분류
+      if (['HAPPY', 'EXCITED', 'GRATEFUL', 'PEACEFUL', 'HOPEFUL'].includes(item.mood)) {
+        acc[date].positive += item.value;
+      } else if (['NEUTRAL'].includes(item.mood)) {
+        acc[date].neutral += item.value;
+      } else {
+        acc[date].negative += item.value;
+      }
+      
+      return acc;
+    }, {} as Record<string, { date: string; positive: number; neutral: number; negative: number }>);
+    
+    return Object.values(groupedData).sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+  };
+  
+  const chartData = processData();
+  
+  if (!loading && chartData.length === 0) {
+    return (
+      <div className="h-[300px] flex items-center justify-center text-gray-500">
+        감정 데이터가 없습니다.
+      </div>
+    );
+  }
 
   return (
     <ResponsiveContainer width="100%" height={300}>
-      <LineChart data={mockData}>
+      <LineChart data={chartData}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
         <XAxis 
           dataKey="date" 

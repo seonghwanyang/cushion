@@ -9,7 +9,7 @@ interface GoogleSignInButtonProps {
   redirectTo?: string
 }
 
-export function GoogleSignInButton({ className, redirectTo = '/dashboard/diaries' }: GoogleSignInButtonProps) {
+export function GoogleSignInButton({ className, redirectTo = '/dashboard' }: GoogleSignInButtonProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 

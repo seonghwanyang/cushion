@@ -1,9 +1,17 @@
-import 'dotenv/config';
 import { createServer } from 'http';
 import { app } from './app';
 import { logger } from './utils/logger';
 import { config } from './config';
 import { prisma } from './config/database';
+
+// Log configuration on startup
+console.log('[Server] Starting with configuration:', {
+  env: config.env,
+  port: config.port,
+  useSupabaseAuth: config.features.useSupabaseAuth,
+  useMockAuth: config.features.useMockAuth,
+  supabaseConfigured: !!(config.supabase.url && config.supabase.serviceRoleKey),
+});
 
 const server = createServer(app);
 const PORT = config.port || 3001;

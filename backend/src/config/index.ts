@@ -1,4 +1,9 @@
+import * as dotenv from 'dotenv';
+import * as path from 'path';
 import { z } from 'zod';
+
+// Load .env.local file before parsing environment variables
+dotenv.config({ path: path.resolve(__dirname, '../../.env.local') });
 
 // 개발 환경에서는 더 유연한 스키마 사용
 const createEnvSchema = (isDev: boolean) => {
@@ -12,6 +17,7 @@ const createEnvSchema = (isDev: boolean) => {
     USE_MOCK_DATABASE: z.string().transform(v => v === 'true').default(isDev ? 'true' : 'false'),
     USE_MOCK_AI: z.string().transform(v => v === 'true').default('true'),
     USE_MOCK_STORAGE: z.string().transform(v => v === 'true').default('true'),
+    USE_SUPABASE_AUTH: z.string().transform(v => v === 'true').default('false'),
     
     // CORS
     CORS_ORIGINS: z.string().default('http://localhost:3000').transform((val) => val.split(',')),
@@ -39,6 +45,10 @@ const createEnvSchema = (isDev: boolean) => {
     OPENAI_API_KEY: z.string().optional(),
     AWS_ACCESS_KEY_ID: z.string().optional(),
     AWS_SECRET_ACCESS_KEY: z.string().optional(),
+    
+    // Supabase (개발에서는 선택적)
+    SUPABASE_URL: z.string().optional(),
+    SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
   } : {
     // 프로덕션에서는 모두 필수
     DATABASE_URL: z.string(),
@@ -51,6 +61,8 @@ const createEnvSchema = (isDev: boolean) => {
     OPENAI_API_KEY: z.string(),
     AWS_ACCESS_KEY_ID: z.string(),
     AWS_SECRET_ACCESS_KEY: z.string(),
+    SUPABASE_URL: z.string(),
+    SUPABASE_SERVICE_ROLE_KEY: z.string(),
   };
 
   return z.object({ ...baseSchema, ...conditionalSchema });
@@ -69,6 +81,7 @@ export const config = {
     useMockDatabase: env.USE_MOCK_DATABASE,
     useMockAI: env.USE_MOCK_AI,
     useMockStorage: env.USE_MOCK_STORAGE,
+    useSupabaseAuth: env.USE_SUPABASE_AUTH,
   },
   
   database: {
@@ -94,6 +107,11 @@ export const config = {
   
   logging: {
     level: env.LOG_LEVEL,
+  },
+  
+  supabase: {
+    url: env.SUPABASE_URL,
+    serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
   },
   
   isDev,

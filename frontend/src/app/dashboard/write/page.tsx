@@ -5,14 +5,14 @@ import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
-import { useMutation } from '@tanstack/react-query'
-import { diaryApi, MoodType } from '@/lib/api/diary.api'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { diaryApi, MoodType } from '@/lib/api/diary'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 const diarySchema = z.object({
-  content: z.string().min(10, '일기는 최소 10자 이상 작성해주세요'),
+  content: z.string().min(1, '일기를 작성해주세요'),
   mood: z.enum(['HAPPY', 'SAD', 'ANGRY', 'ANXIOUS', 'NEUTRAL', 'EXCITED', 'GRATEFUL', 'STRESSED', 'PEACEFUL', 'HOPEFUL'] as const),
   tags: z.string().optional(),
 })
@@ -34,6 +34,7 @@ const moodOptions: { value: MoodType; label: string; emoji: string }[] = [
 
 export default function WriteDiaryPage() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
 
   const {
@@ -54,6 +55,11 @@ export default function WriteDiaryPage() {
   const createDiaryMutation = useMutation({
     mutationFn: diaryApi.create,
     onSuccess: () => {
+      // 일기 목록 캐시 무효화 - 모든 diary 관련 쿼리 무효화
+      queryClient.invalidateQueries({ queryKey: ['diaries'] })
+      queryClient.invalidateQueries({ queryKey: ['diary-stats'] })
+      queryClient.invalidateQueries({ queryKey: ['recent-diaries'] })
+      // 일기 목록 페이지로 이동
       router.push('/dashboard/diaries')
     },
     onError: (error: any) => {
@@ -152,7 +158,7 @@ export default function WriteDiaryPage() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => router.push('/diaries')}
+                onClick={() => router.push('/dashboard')}
                 disabled={createDiaryMutation.isPending}
               >
                 취소

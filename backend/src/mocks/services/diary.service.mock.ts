@@ -1,4 +1,4 @@
-import { IDiaryService, CreateDiaryInput, UpdateDiaryInput, DiaryFilter } from '@/interfaces/services/diary.service.interface';
+import { IDiaryService, CreateDiaryInput, UpdateDiaryInput, DiaryFilter, DiaryListOptions, DiaryListResult, DiaryStats } from '@/interfaces/services/diary.service.interface';
 import { NotFoundError, ForbiddenError } from '@/utils/errors';
 import { v4 as uuidv4 } from 'uuid';
 import type { Diary } from '@prisma/client';
@@ -65,10 +65,19 @@ export class MockDiaryService implements IDiaryService {
     return diary;
   }
 
-  async findById(id: string): Promise<Diary | null> {
+  async findById(id: string, userId: string): Promise<Diary> {
     await this.simulateDelay();
     const diary = this.diaries.get(id);
-    return diary || null;
+    
+    if (!diary) {
+      throw new NotFoundError('Diary not found');
+    }
+    
+    if (diary.userId !== userId) {
+      throw new ForbiddenError('Not authorized to view this diary');
+    }
+    
+    return diary;
   }
 
   async findByUser(userId: string, filter?: DiaryFilter): Promise<Diary[]> {
@@ -99,6 +108,53 @@ export class MockDiaryService implements IDiaryService {
 
     // Sort by creation date (newest first)
     return diaries.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  async list(userId: string, options?: DiaryListOptions): Promise<DiaryListResult> {
+    await this.simulateDelay();
+    const page = Number(options?.page) || 1;
+    const limit = Number(options?.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const userDiaryIds = this.userDiaries.get(userId) || new Set();
+    let diaries = Array.from(userDiaryIds)
+      .map(id => this.diaries.get(id))
+      .filter(diary => diary !== undefined);
+
+    // Apply filters
+    if (options?.startDate) {
+      diaries = diaries.filter(d => d.createdAt >= options.startDate!);
+    }
+    if (options?.endDate) {
+      diaries = diaries.filter(d => d.createdAt <= options.endDate!);
+    }
+    if (options?.mood) {
+      diaries = diaries.filter(d => d.mood === options.mood);
+    }
+    if (options?.tags && options.tags.length > 0) {
+      diaries = diaries.filter(d => 
+        options.tags!.some(tag => d.tags.includes(tag))
+      );
+    }
+    if (options?.isAnalyzed !== undefined) {
+      diaries = diaries.filter(d => d.isAnalyzed === options.isAnalyzed);
+    }
+
+    // Sort by creation date (newest first)
+    diaries.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    const total = diaries.length;
+    const paginatedDiaries = diaries.slice(skip, skip + limit);
+
+    return {
+      data: paginatedDiaries,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async update(id: string, userId: string, input: UpdateDiaryInput): Promise<Diary> {
@@ -157,6 +213,60 @@ export class MockDiaryService implements IDiaryService {
     });
     
     return count;
+  }
+
+  async getStats(userId: string): Promise<DiaryStats> {
+    await this.simulateDelay();
+    const userDiaryIds = this.userDiaries.get(userId) || new Set();
+    const diaries = Array.from(userDiaryIds).map(id => this.diaries.get(id)).filter(d => d !== undefined);
+    
+    // Calculate total count
+    const totalCount = diaries.length;
+    
+    // Calculate current streak (simplified)
+    const currentStreak = Math.min(totalCount, 7);
+    const longestStreak = Math.max(currentStreak, Math.min(totalCount, 14));
+    
+    // Calculate mood distribution
+    const moodDistribution: Record<string, number> = {};
+    diaries.forEach(diary => {
+      if (diary.mood) {
+        moodDistribution[diary.mood] = (moodDistribution[diary.mood] || 0) + 1;
+      }
+    });
+    
+    // Mock strength distribution
+    const strengthDistribution = [
+      { strength: 'Problem Solving', count: 8 },
+      { strength: 'Communication', count: 6 },
+      { strength: 'Leadership', count: 4 },
+      { strength: 'Creativity', count: 3 },
+    ];
+    
+    // Mock emotion trend
+    const emotionTrend = diaries.slice(0, 7).map((diary, index) => ({
+      date: new Date(Date.now() - index * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      mood: diary.mood || 'NEUTRAL',
+      value: 5 + Math.floor(Math.random() * 5),
+    }));
+    
+    const totalStrengths = strengthDistribution.reduce((sum, s) => sum + s.count, 0);
+    const growthScore = Math.min(100, Math.round(
+      (totalCount * 0.3) + 
+      (currentStreak * 2) + 
+      (totalStrengths * 0.5)
+    ));
+    
+    return {
+      totalCount,
+      currentStreak,
+      longestStreak,
+      totalStrengths,
+      growthScore,
+      moodDistribution,
+      strengthDistribution,
+      emotionTrend,
+    };
   }
 
   private async simulateDelay(ms: number = 150): Promise<void> {

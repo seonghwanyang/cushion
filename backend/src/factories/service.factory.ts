@@ -15,10 +15,12 @@ import { MockJWTService } from '@/mocks/services/jwt.service.mock';
 import { MockAIService } from '@/mocks/services/ai.service.mock';
 import { MockInsightService } from '@/mocks/services/insight.service.mock';
 
-// Real implementations (will be imported when available)
-// import { AuthService } from '@/services/auth.service';
-// import { DiaryService } from '@/services/diary.service';
-// import { JWTService } from '@/services/jwt.service';
+// Real implementations
+import { AuthService } from '@/services/auth.service';
+import { JWTService } from '@/services/jwt.service';
+import { DiaryService } from '@/services/diary.service';
+import { InsightService } from '@/services/insight.service';
+import { prisma } from '@/config/database';
 
 export class ServiceFactory {
   private static instance: ServiceFactory;
@@ -41,9 +43,7 @@ export class ServiceFactory {
         this.services.set(key, new MockAuthService());
       } else {
         logger.info('Using Real Auth Service');
-        // TODO: Switch to real implementation when ready
-        // this.services.set(key, new AuthService());
-        this.services.set(key, new MockAuthService()); // Temporarily use mock
+        this.services.set(key, new AuthService());
       }
     }
     return this.services.get(key);
@@ -57,9 +57,7 @@ export class ServiceFactory {
         this.services.set(key, new MockDiaryService());
       } else {
         logger.info('Using Real Diary Service');
-        // TODO: Switch to real implementation when ready
-        // this.services.set(key, new DiaryService(prisma));
-        this.services.set(key, new MockDiaryService()); // Temporarily use mock
+        this.services.set(key, new DiaryService(prisma));
       }
     }
     return this.services.get(key);
@@ -73,9 +71,7 @@ export class ServiceFactory {
         this.services.set(key, new MockJWTService());
       } else {
         logger.info('Using Real JWT Service');
-        // TODO: Switch to real implementation when ready
-        // this.services.set(key, new JWTService());
-        this.services.set(key, new MockJWTService()); // Temporarily use mock
+        this.services.set(key, new JWTService());
       }
     }
     return this.services.get(key);
@@ -105,9 +101,7 @@ export class ServiceFactory {
         this.services.set(key, new MockInsightService());
       } else {
         logger.info('Using Real Insight Service');
-        // TODO: Switch to real implementation when ready
-        // this.services.set(key, new InsightService(prisma));
-        this.services.set(key, new MockInsightService()); // Temporarily use mock
+        this.services.set(key, new InsightService(prisma));
       }
     }
     return this.services.get(key);

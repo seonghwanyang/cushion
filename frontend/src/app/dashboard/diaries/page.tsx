@@ -1,13 +1,23 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
-import { format } from 'date-fns'
-import { ko } from 'date-fns/locale'
-import { diaryApi, MoodType } from '@/lib/api/diary.api'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { formatDate } from '@/lib/utils/date'
+import { diaryApi, MoodType } from '@/lib/api/diary'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Pencil, Trash2, Eye } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 const moodEmojis: Record<MoodType, string> = {
   HAPPY: '😊',
@@ -38,10 +48,37 @@ const moodColors: Record<MoodType, string> = {
 export default function DiariesPage() {
   const [page, setPage] = useState(1)
   const limit = 10
+  const queryClient = useQueryClient()
+  const [deleteId, setDeleteId] = useState<string | null>(null)
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['diaries', page, limit],
-    queryFn: () => diaryApi.getList({ page, limit }),
+    queryFn: async () => {
+      const result = await diaryApi.getList({ page, limit });
+      console.log('[DiariesPage] API response:', result);
+      return result;
+    },
+    staleTime: 0, // 항상 최신 데이터 가져오기
+    refetchOnMount: 'always', // 마운트될 때마다 새로 가져오기
+    refetchOnWindowFocus: true, // 포커스될 때마다 새로 가져오기
+  })
+
+  // 페이지가 포커스될 때마다 데이터 새로고침
+  useEffect(() => {
+    const handleFocus = () => {
+      refetch()
+    }
+    
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [refetch])
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => diaryApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['diaries'] })
+      setDeleteId(null)
+    },
   })
 
   if (isLoading) {
@@ -62,7 +99,7 @@ export default function DiariesPage() {
     )
   }
 
-  if (!data || data.diaries.length === 0) {
+  if (!data || !data.diaries || data.diaries.length === 0) {
     return (
       <div className="text-center py-12">
         <h2 className="text-2xl font-semibold text-gray-900">
@@ -71,7 +108,7 @@ export default function DiariesPage() {
         <p className="mt-2 text-gray-600">
           첫 번째 일기를 작성해보세요!
         </p>
-        <Link href="/write" className="mt-4 inline-block">
+        <Link href="/dashboard/write" className="mt-4 inline-block">
           <Button>일기 쓰기</Button>
         </Link>
       </div>
@@ -82,7 +119,7 @@ export default function DiariesPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">내 일기</h1>
-        <Link href="/write">
+        <Link href="/dashboard/write">
           <Button>새 일기 쓰기</Button>
         </Link>
       </div>
@@ -92,24 +129,29 @@ export default function DiariesPage() {
           <Card key={diary.id} className="hover:shadow-lg transition-shadow">
             <CardHeader>
               <div className="flex justify-between items-start">
-                <CardTitle className="text-lg">
-                  {format(new Date(diary.createdAt), 'yyyy년 M월 d일 (EEEE)', {
-                    locale: ko,
-                  })}
-                </CardTitle>
-                <div
-                  className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm ${
-                    moodColors[diary.mood]
-                  }`}
-                >
-                  <span>{moodEmojis[diary.mood]}</span>
-                  <span>{diary.mood}</span>
+                <div className="flex-1">
+                  <CardTitle className="text-lg">
+                    {formatDate(diary.createdAt, 'yyyy년 M월 d일 (EEEE)')}
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {formatDate(diary.createdAt, 'HH:mm')}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm ${
+                      moodColors[diary.mood]
+                    }`}
+                  >
+                    <span>{moodEmojis[diary.mood]}</span>
+                    <span>{diary.mood}</span>
+                  </div>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
               <p className="text-gray-700 line-clamp-3">{diary.content}</p>
-              {diary.tags.length > 0 && (
+              {diary.tags && diary.tags.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {diary.tags.map((tag) => (
                     <span
@@ -121,11 +163,29 @@ export default function DiariesPage() {
                   ))}
                 </div>
               )}
-              <Link href={`/dashboard/diaries/${diary.id}`}>
-                <Button variant="link" className="mt-3 p-0">
-                  자세히 보기 →
-                </Button>
-              </Link>
+              <div className="flex items-center justify-between mt-3">
+                <Link href={`/dashboard/diaries/${diary.id}`}>
+                  <Button variant="link" className="p-0">
+                    <Eye className="h-4 w-4 mr-1" />
+                    자세히 보기
+                  </Button>
+                </Link>
+                <div className="flex gap-1">
+                  <Link href={`/dashboard/diaries/${diary.id}/edit`}>
+                    <Button variant="ghost" size="sm">
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </Link>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => setDeleteId(diary.id)}
+                    disabled={deleteMutation.isPending}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         ))}
@@ -152,6 +212,27 @@ export default function DiariesPage() {
           </Button>
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>일기를 삭제하시겠습니까?</AlertDialogTitle>
+            <AlertDialogDescription>
+              이 작업은 취소할 수 없습니다. 일기와 관련된 모든 분석 데이터가 영구적으로 삭제됩니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => deleteId && deleteMutation.mutate(deleteId)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

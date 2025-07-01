@@ -35,16 +35,23 @@ export interface DiaryListResponse {
 }
 
 export interface DiaryStats {
-  totalEntries: number;
-  moodDistribution: Record<MoodType, number>;
-  topTags: Array<{ tag: string; count: number }>;
-  entriesByMonth: Array<{ month: string; count: number }>;
+  totalCount: number;
+  currentStreak: number;
+  totalStrengths: number;
+  growthScore: number;
+  strengthDistribution?: any;
+  emotionTrend?: any;
+  totalEntries?: number;
+  moodDistribution?: Record<MoodType, number>;
+  topTags?: Array<{ tag: string; count: number }>;
+  entriesByMonth?: Array<{ month: string; count: number }>;
 }
 
 export const diaryApi = {
   async create(data: CreateDiaryRequest): Promise<Diary> {
     const response = await apiClient.post('/diaries', data);
-    return response.data;
+    // Backend returns data wrapped in success response
+    return response.data.data;
   },
   
   async getList(params?: {
@@ -56,17 +63,26 @@ export const diaryApi = {
     endDate?: string;
   }): Promise<DiaryListResponse> {
     const response = await apiClient.get('/diaries', { params });
-    return response.data;
+    // Backend returns data wrapped in success response
+    return {
+      diaries: response.data.data || [],
+      total: response.data.meta?.totalCount || 0,
+      page: response.data.meta?.page || 1,
+      limit: params?.limit || 10,
+      totalPages: response.data.meta?.totalPages || 1,
+    };
   },
   
   async getById(id: string): Promise<Diary> {
     const response = await apiClient.get(`/diaries/${id}`);
-    return response.data;
+    // Backend returns data wrapped in success response
+    return response.data.data;
   },
   
   async update(id: string, data: UpdateDiaryRequest): Promise<Diary> {
     const response = await apiClient.put(`/diaries/${id}`, data);
-    return response.data;
+    // Backend returns data wrapped in success response
+    return response.data.data;
   },
   
   async delete(id: string): Promise<void> {
@@ -75,6 +91,7 @@ export const diaryApi = {
   
   async getStats(): Promise<DiaryStats> {
     const response = await apiClient.get('/diaries/stats');
-    return response.data;
+    // Backend returns data wrapped in success response
+    return response.data.data;
   },
 };

@@ -29,7 +29,7 @@ import { GrowthProgress } from '@/components/dashboard/GrowthProgress';
 export default function DashboardPage() {
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['diary-stats'],
-    queryFn: () => diaryApi.stats(),
+    queryFn: () => diaryApi.getStats(),
   });
 
   const { data: weeklyInsight, isLoading: insightLoading } = useQuery({
@@ -39,7 +39,7 @@ export default function DashboardPage() {
 
   const { data: recentDiaries } = useQuery({
     queryKey: ['recent-diaries'],
-    queryFn: () => diaryApi.list({ limit: 5 }),
+    queryFn: () => diaryApi.getList({ limit: 5 }),
   });
 
   const isLoading = statsLoading || insightLoading;
@@ -104,7 +104,6 @@ export default function DashboardPage() {
           value={stats?.totalCount || 0}
           icon={Calendar}
           color="blue"
-          trend={+15}
           loading={isLoading}
         />
         <StatsCard
@@ -113,7 +112,6 @@ export default function DashboardPage() {
           suffix="일"
           icon={Activity}
           color="green"
-          trend={+3}
           loading={isLoading}
         />
         <StatsCard
@@ -130,7 +128,6 @@ export default function DashboardPage() {
           suffix="점"
           icon={TrendingUp}
           color="purple"
-          trend={+8}
           loading={isLoading}
         />
       </motion.div>
@@ -152,7 +149,7 @@ export default function DashboardPage() {
                     핵심 강점
                   </h4>
                   <div className="space-y-2">
-                    {weeklyInsight.consistentStrengths.slice(0, 3).map((strength, idx) => (
+                    {weeklyInsight.consistentStrengths?.slice(0, 3).map((strength, idx) => (
                       <div key={idx} className="flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full bg-cushion-orange" />
                         <span className="text-sm">{strength.strength}</span>
@@ -168,7 +165,7 @@ export default function DashboardPage() {
                     주요 성과
                   </h4>
                   <div className="space-y-2">
-                    {weeklyInsight.keyAchievements.slice(0, 3).map((achievement, idx) => (
+                    {weeklyInsight.keyAchievements?.slice(0, 3).map((achievement, idx) => (
                       <div key={idx} className="flex items-start gap-2">
                         <ChevronRight className="w-3 h-3 mt-1 text-green-600" />
                         <span className="text-sm">{achievement}</span>
@@ -179,7 +176,7 @@ export default function DashboardPage() {
               </div>
               
               {/* 추천사항 */}
-              {weeklyInsight.recommendations[0] && (
+              {weeklyInsight.recommendations?.[0] && (
                 <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                   <p className="text-sm text-blue-800 dark:text-blue-200">
                     💡 {weeklyInsight.recommendations[0]}
@@ -230,7 +227,7 @@ export default function DashboardPage() {
             <CardTitle>주간 활동</CardTitle>
           </CardHeader>
           <CardContent>
-            <WeeklyHeatmap diaries={recentDiaries?.data || []} />
+            <WeeklyHeatmap diaries={recentDiaries?.diaries || []} />
           </CardContent>
         </Card>
       </motion.div>
@@ -261,7 +258,7 @@ export default function DashboardPage() {
           </Link>
         </div>
         <div className="grid gap-4">
-          {recentDiaries?.data.map((diary) => (
+          {recentDiaries?.diaries?.map((diary) => (
             <motion.div
               key={diary.id}
               whileHover={{ scale: 1.02 }}
@@ -285,7 +282,13 @@ export default function DashboardPage() {
                 </Card>
               </Link>
             </motion.div>
-          ))}
+          )) || (
+            <Card>
+              <CardContent className="p-8 text-center text-gray-500">
+                아직 작성한 일기가 없습니다.
+              </CardContent>
+            </Card>
+          )}
         </div>
       </motion.div>
     </motion.div>
@@ -331,11 +334,6 @@ function StatsCard({
                 <p className="text-2xl font-bold">{value}</p>
                 {suffix && <span className="text-sm text-gray-500">{suffix}</span>}
               </div>
-              {trend && (
-                <p className="text-xs text-green-600 mt-1">
-                  +{trend}% 지난주 대비
-                </p>
-              )}
             </div>
             <div className={`p-3 rounded-lg ${colorClasses[color]}`}>
               <Icon className="w-6 h-6" />

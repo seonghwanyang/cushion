@@ -40,10 +40,10 @@ export default function AuthCallbackPage() {
         const user = {
           id: session.user.id,
           email: session.user.email!,
-          name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
-          role: 'user' as const,
-          createdAt: new Date(session.user.created_at),
-          updatedAt: new Date(session.user.updated_at || session.user.created_at)
+          name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email?.split('@')[0] || null,
+          profileImage: session.user.user_metadata?.avatar_url || null,
+          role: 'USER' as const,
+          status: 'ACTIVE' as const
         }
         
         // Use the Supabase session tokens
@@ -53,7 +53,7 @@ export default function AuthCallbackPage() {
         // This would involve calling your backend API to create/update the user record
         
         // Redirect to the intended page or dashboard
-        const next = searchParams.get('next') || '/dashboard/diaries'
+        const next = searchParams.get('next') || '/dashboard'
         router.push(next)
       } catch (error) {
         console.error('Auth callback error:', error)

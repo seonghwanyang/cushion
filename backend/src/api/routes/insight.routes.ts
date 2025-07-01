@@ -5,12 +5,16 @@ import {
   generateWeeklyInsightSchema 
 } from '@/api/controllers/insight.controller';
 import { authenticate } from '@/api/middleware/auth.middleware';
+import { authenticateSupabase } from '@/api/middleware/auth.middleware.supabase';
 import { validate } from '@/api/middleware/validation.middleware';
+import { config } from '@/config';
 
 const router = Router();
 
 // All insight routes require authentication
-router.use(authenticate);
+// Use Supabase auth if enabled, otherwise use JWT
+const authMiddleware = config.features.useSupabaseAuth ? authenticateSupabase : authenticate;
+router.use(authMiddleware);
 
 // Get latest insight for the user
 router.get(

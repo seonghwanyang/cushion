@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { serviceFactory } from '@/factories/service.factory';
 import { UnauthorizedError } from '@/utils/errors';
+import { supabase } from '@/config/supabase';
 
 declare global {
   namespace Express {
@@ -30,22 +31,54 @@ export const authenticate = async (
     
     const token = authHeader.substring(7);
     
-    // Get services from factory
-    const jwtService = serviceFactory.getJWTService();
-    const authService = serviceFactory.getAuthService();
-    
-    // Verify token
-    const payload = await jwtService.verifyAccessToken(token);
-    
-    // Validate user
-    const user = await authService.validateUser(payload.sub);
-    
-    // Attach user to request
-    req.user = {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-    };
+    // Check if we should use Supabase or fallback to JWT
+    if (supabase) {
+      // Verify Supabase token
+      const { data: { user }, error } = await supabase.auth.getUser(token);
+      
+      if (error || !user) {
+        throw new UnauthorizedError('Invalid token');
+      }
+      
+      // Get authService to check if user exists in our database
+      const authService = serviceFactory.getAuthService();
+      
+      try {
+        // Try to get user from our database
+        const dbUser = await authService.validateUser(user.id);
+        
+        // Attach user to request
+        req.user = {
+          id: dbUser.id,
+          email: dbUser.email,
+          role: dbUser.role,
+        };
+      } catch (dbError) {
+        // User doesn't exist in our database yet, create a minimal user object
+        req.user = {
+          id: user.id,
+          email: user.email!,
+          role: 'USER',
+        };
+      }
+    } else {
+      // Fallback to JWT for development/testing
+      const jwtService = serviceFactory.getJWTService();
+      const authService = serviceFactory.getAuthService();
+      
+      // Verify token
+      const payload = await jwtService.verifyAccessToken(token);
+      
+      // Validate user
+      const user = await authService.validateUser(payload.sub);
+      
+      // Attach user to request
+      req.user = {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+      };
+    }
     
     next();
   } catch (error) {

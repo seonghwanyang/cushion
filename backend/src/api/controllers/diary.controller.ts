@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { serviceFactory } from '@/factories/service.factory';
 import { sendSuccess } from '@/utils/response';
 import { NotFoundError, ForbiddenError } from '@/utils/errors';
+import { DiaryListOptions } from '@/interfaces/services/diary.service.interface';
 
 // Validation schemas
 const createDiarySchema = z.object({
@@ -97,7 +98,7 @@ export class DiaryController {
       const { id } = req.params;
       const userId = req.user!.id;
       
-      const diary = await this.diaryService.findById(id);
+      const diary = await this.diaryService.findById(id, userId);
       
       if (!diary) {
         throw new NotFoundError('Diary not found');
@@ -125,27 +126,25 @@ export class DiaryController {
   async list(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const userId = req.user!.id;
-      const { startDate, endDate, mood, tags, page, limit } = req.query as any;
+      const { startDate, endDate, mood, tags, page, limit, isAnalyzed } = req.query as any;
       
-      const filter = {
+      const options: DiaryListOptions = {
+        page,
+        limit,
         startDate: startDate ? new Date(startDate) : undefined,
         endDate: endDate ? new Date(endDate) : undefined,
         mood,
         tags: tags ? tags.split(',') : undefined,
+        isAnalyzed,
       };
       
-      const diaries = await this.diaryService.findByUser(userId, filter);
+      const result = await this.diaryService.list(userId, options);
       
-      // Pagination
-      const start = (page - 1) * limit;
-      const end = start + limit;
-      const paginatedDiaries = diaries.slice(start, end);
-      
-      sendSuccess(res, paginatedDiaries, 200, {
-        page,
-        totalPages: Math.ceil(diaries.length / limit),
-        totalCount: diaries.length,
-        hasNext: end < diaries.length,
+      sendSuccess(res, result.data, 200, {
+        page: result.pagination.page,
+        totalPages: result.pagination.totalPages,
+        totalCount: result.pagination.total,
+        hasNext: result.pagination.page < result.pagination.totalPages,
       });
     } catch (error) {
       next(error);
@@ -182,31 +181,9 @@ export class DiaryController {
     try {
       const userId = req.user!.id;
       
-      const totalCount = await this.diaryService.count(userId);
-      const diaries = await this.diaryService.findByUser(userId);
+      const stats = await this.diaryService.getStats(userId);
       
-      // Mood statistics
-      const moodStats = diaries.reduce((acc, diary) => {
-        if (diary.mood) {
-          acc[diary.mood] = (acc[diary.mood] || 0) + 1;
-        }
-        return acc;
-      }, {} as Record<string, number>);
-      
-      // Tag statistics
-      const tagStats = diaries.reduce((acc, diary) => {
-        diary.tags.forEach(tag => {
-          acc[tag] = (acc[tag] || 0) + 1;
-        });
-        return acc;
-      }, {} as Record<string, number>);
-      
-      sendSuccess(res, {
-        totalCount,
-        moodStats,
-        tagStats,
-        lastDiaryDate: diaries[0]?.createdAt || null,
-      });
+      sendSuccess(res, stats);
     } catch (error) {
       next(error);
     }

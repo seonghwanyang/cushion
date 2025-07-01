@@ -1,16 +1,26 @@
 'use client'
 
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
-import { format } from 'date-fns'
-import { ko } from 'date-fns/locale'
-import { diaryApi, MoodType } from '@/lib/api/diary.api'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { formatDate } from '@/lib/utils/date'
+import { diaryApi, MoodType } from '@/lib/api/diary'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { DiaryAnalysis } from '@/components/diary/DiaryAnalysis'
-import { ArrowLeft, Calendar, Hash } from 'lucide-react'
+import { ArrowLeft, Calendar, Hash, Pencil, Trash2 } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 const moodEmojis: Record<MoodType, string> = {
   HAPPY: '😊',
@@ -46,11 +56,21 @@ interface DiaryDetailPageProps {
 
 export default function DiaryDetailPage({ params }: DiaryDetailPageProps) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { id } = params
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['diary', id],
     queryFn: () => diaryApi.getById(id),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: () => diaryApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['diaries'] })
+      router.push('/dashboard/diaries')
+    },
   })
 
   if (isLoading) {
@@ -109,17 +129,27 @@ export default function DiaryDetailPage({ params }: DiaryDetailPageProps) {
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <Link href="/diaries">
+        <Link href="/dashboard/diaries">
           <Button variant="ghost" size="sm">
             <ArrowLeft className="h-4 w-4 mr-2" />
             돌아가기
           </Button>
         </Link>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm">
-            수정
-          </Button>
-          <Button variant="outline" size="sm" className="text-destructive">
+          <Link href={`/dashboard/diaries/${id}/edit`}>
+            <Button variant="outline" size="sm">
+              <Pencil className="h-4 w-4 mr-2" />
+              수정
+            </Button>
+          </Link>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="text-destructive"
+            onClick={() => setShowDeleteDialog(true)}
+            disabled={deleteMutation.isPending}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
             삭제
           </Button>
         </div>
@@ -131,14 +161,12 @@ export default function DiaryDetailPage({ params }: DiaryDetailPageProps) {
           <div className="flex items-start justify-between">
             <div>
               <CardTitle className="text-2xl">
-                {format(new Date(data.createdAt), 'yyyy년 M월 d일 (EEEE)', {
-                  locale: ko,
-                })}
+                {formatDate(data.createdAt, 'yyyy년 M월 d일 (EEEE)', '날짜 없음')}
               </CardTitle>
               <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
                 <Calendar className="h-4 w-4" />
                 <span>
-                  {format(new Date(data.createdAt), 'HH:mm', { locale: ko })}
+                  {formatDate(data.createdAt, 'HH:mm')}
                 </span>
               </div>
             </div>
@@ -157,7 +185,7 @@ export default function DiaryDetailPage({ params }: DiaryDetailPageProps) {
             <p className="whitespace-pre-wrap text-gray-700">{data.content}</p>
           </div>
           
-          {data.tags.length > 0 && (
+          {data.tags && data.tags.length > 0 && (
             <div className="pt-4 border-t">
               <div className="flex items-center gap-2 mb-2">
                 <Hash className="h-4 w-4 text-muted-foreground" />
@@ -180,6 +208,27 @@ export default function DiaryDetailPage({ params }: DiaryDetailPageProps) {
         analysis={(data as any).insight} 
         isLoading={false}
       />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>일기를 삭제하시겠습니까?</AlertDialogTitle>
+            <AlertDialogDescription>
+              이 작업은 취소할 수 없습니다. 일기와 관련된 모든 분석 데이터가 영구적으로 삭제됩니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => deleteMutation.mutate()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

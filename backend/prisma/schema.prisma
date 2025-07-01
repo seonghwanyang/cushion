@@ -58,9 +58,9 @@ enum SubscriptionStatus {
 // ========== Models ==========
 
 model User {
-  id                String             @id @default(cuid())
+  id                String             @id @default(uuid()) // Use UUID to match Supabase
   email             String             @unique
-  password          String
+  password          String             @default("") // Empty for Supabase users
   name              String?
   profileImage      String?
   role              UserRole           @default(USER)

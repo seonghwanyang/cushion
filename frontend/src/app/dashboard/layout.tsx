@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useAuthStore } from '@/lib/stores/auth.store'
 import { Button } from '@/components/ui/button'
 import { useMutation } from '@tanstack/react-query'
-import { authApi } from '@/lib/api/auth.api'
+import { authApi } from '@/lib/api/auth'
 import { ThemeToggle } from '@/components/ui/theme-toggle'
 import { MobileNav } from '@/components/navigation/MobileNav'
 
@@ -16,13 +16,14 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const router = useRouter()
-  const { isAuthenticated, user, logout } = useAuthStore()
+  const { isAuthenticated, user, logout, isLoading } = useAuthStore()
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.push('/login')
+    // 로딩 중일 때는 리다이렉트하지 않음
+    if (!isLoading && !isAuthenticated) {
+      router.push('/auth/login')
     }
-  }, [isAuthenticated, router])
+  }, [isAuthenticated, isLoading, router])
 
   const logoutMutation = useMutation({
     mutationFn: authApi.logout,
@@ -34,6 +35,18 @@ export default function DashboardLayout({
 
   const handleLogout = () => {
     logoutMutation.mutate()
+  }
+
+  // 로딩 중일 때 로딩 화면 표시
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cushion-orange mx-auto"></div>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">로딩 중...</p>
+        </div>
+      </div>
+    )
   }
 
   if (!isAuthenticated) {
